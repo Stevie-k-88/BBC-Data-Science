@@ -1,0 +1,212 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Apr 17 20:33:03 2019
+
+@author: Stevie
+"""
+
+import pandas as pd
+import numpy as np
+from matplotlib import pyplot as plt
+
+# Load our output dataset from course 1
+data = pd.read_csv('iplayer_data_c1.csv')
+
+# Check that it all looks how we expect it to.
+data.head()
+data=data[data['twoweek']>0]
+data.twoweek.value_counts().sort_index()
+
+# We need to compute the total minutes watched within twoweek 8 for each user
+target_reg=pd.pivot_table(data,
+                          values='min_watched',
+                          index=['user_id'],
+                          columns=['twoweek'],
+                          aggfunc=sum)[8].reset_index()
+
+
+# We fill the NAs with 0: corresponds to the users without observations for the last twoweek
+# i.e. who didn't watch anything
+target_reg=target_reg.fillna(0)
+target_reg.head()
+
+# We build the dummy variable based on the minutes watched on this twoweek
+target_class=target_reg.copy()
+target_class[8]=np.where(target_class[8]>0,1,0)
+target_class.head()
+# Basic statistics for a quantitative variable
+target_reg.describe()
+# Distribution of the minutes watched
+target_reg[8].hist(bins=100)
+plt.title('Distribution of target variable (total minutes watched in final two-week group)')
+plt.show()
+
+# Distribution of the dummy variable did the user watch or not
+target_class[8].value_counts().sort_index().plot(kind='bar')
+plt.title('Distribution of target variable (total minutes watched in final two-week group)')
+plt.show()
+# Ratio 
+print("More precisely, "+
+      str(round(sum(target_class[8])/len(target_class)*100,2))+
+      "% of the users in our sample watched iPlayer within the last two-week period.")
+# Create a function that pivots the data based on customer
+# and gives us all the features we need
+def pivot_data(dataframe):
+    #How many minutes did each person watch in each 2 week period
+    data=pd.pivot_table(dataframe,values='min_watched', 
+                        index=['user_id'],columns=['twoweek'], aggfunc=sum)
+    # Fill the weeks they didn't watch in with 0s
+    data.fillna(0,inplace=True)
+    # How much of average did each viewer watch?
+    data['average_completion']=dataframe.groupby('user_id')['percentage_watched'].mean()
+    # How many sessions did the person have with us
+    data['total_sessions']=dataframe.groupby('user_id')['streaming_id'].nunique()
+    # How many times has the viewer watched something
+    data['number_watched']=dataframe.groupby('user_id')['streaming_id'].count()
+    # Genre most watched by the viewer
+    data['most_genre']=pd.pivot_table(dataframe,values='min_watched', index=['user_id'],
+                                      columns=['enriched_genre'], aggfunc=sum).idxmax(axis=1)
+    # Number of genres watched
+    data['num_genre']=pd.pivot_table(dataframe,values='min_watched', index=['user_id'],
+                                     columns=['enriched_genre'], aggfunc=sum).count(axis=1)
+    # Favourite day of the week to watch
+    data['most_weekday']=pd.pivot_table(dataframe,values='min_watched', index=['user_id'],
+                                        columns=['weekday'], aggfunc=sum).idxmax(axis=1)
+    # Number of weekdays watched
+    data['num_weekday']=pd.pivot_table(dataframe,values='min_watched', index=['user_id'],
+                                       columns=['weekday'], aggfunc=sum).count(axis=1)
+    # Favorite time of day to watch
+    data['most_timeday']=pd.pivot_table(dataframe,values='min_watched', index=['user_id'],
+                                        columns=['time_of_day'], aggfunc=sum).idxmax(axis=1)
+    # Number of times of day
+    data['num_timeday']=pd.pivot_table(dataframe,values='min_watched', index=['user_id'],
+                                       columns=['time_of_day'], aggfunc=sum).count(axis=1)
+    return data
+# We need to consider here only the "past data", i.e. get rid of the last twoweek obs
+# which corresponds to our target
+features=pivot_data(data[data['twoweek']<8])
+features.reset_index().head()
+
+# Make the column names generic
+features = features.rename(columns={1:'tw_lag7_watched',
+                                    2:'tw_lag6_watched',
+                                    3:'tw_lag5_watched',
+                                    4:'tw_lag4_watched',
+                                    5:'tw_lag3_watched',
+                                    6:'tw_lag2_watched',
+                                    7:'tw_lag1_watched'})
+features.head()
+# Histogram 
+for i in [x for x in list(features.columns) if 'tw_lag' in x]:
+    features[i].hist(bins=50)
+    plt.title(i)
+    plt.show()
+    # Histogram
+features['total_sessions'].hist(bins=50)
+plt.title('Total number of sessions per user')
+plt.show()
+# Histogram
+features['number_watched'].hist(bins=50)
+plt.title('Number of unique pieces of content watched per user')
+plt.show()
+# Histogram
+features['average_completion'].hist(bins=50)
+plt.title('Average completion per user')
+plt.show()
+# Histogram 
+for i in ['num_genre', 'num_weekday','num_timeday']:
+    features[i].value_counts().sort_index().plot(kind='bar')
+    plt.title(i)
+    plt.show()
+    
+# Let's merge the different dummies related to the favourite genre
+# in order to have only one histogram 
+favourite_genre=dict()
+for i in [x for x in list(features.columns) if 'most_genre' in x]:
+    favourite_genre[i.split('most_genre_',1)[1]]=sum(features[i]) 
+pd.Series(favourite_genre)
+# Histogram
+pd.Series(favourite_genre).sort_index().plot(kind='bar')
+plt.title('Favourite genre watched per user')
+plt.show()
+# Let's merge the different dummies related to the favourite day of week
+# in order to have only one histogram 
+favourite_weekday=dict()
+for i in [x for x in list(features.columns) if 'most_weekday' in x]:
+    favourite_weekday[i.split('most_weekday_',1)[1]]=sum(features[i]) 
+pd.Series(favourite_weekday)
+# Histogram
+pd.Series(favourite_weekday).sort_index().plot(kind='bar')
+plt.title('Favourite day of the week to watch iPlayer per user')
+plt.show()
+# Let's merge the different dummies related to the favourite time of the day
+# in order to have only one histogram 
+favourite_timeday=dict()
+for i in [x for x in list(features.columns) if 'most_timeday' in x]:
+    favourite_timeday[i.split('most_timeday_',1)[1]]=sum(features[i]) 
+pd.Series(favourite_timeday)
+
+# Histogram
+pd.Series(favourite_timeday).sort_index().plot(kind='bar')
+plt.title('Favourite time of the day to watch iPlayer per user')
+plt.show()
+
+# Correlation matrix
+plt.matshow(features.corr())
+plt.colorbar()
+plt.show()
+# Reminder on the different input variables 
+input_var=dict()
+i=0
+for x in features.columns:
+    input_var[i]=x
+    i+=1
+input_var
+features=features.drop(['number_watched'], axis=1)
+# Find the unique users in both the features and the target
+users_target=target_reg['user_id'].unique()
+users_features=features['user_id'].unique()
+
+# Find those users that are in the target but not in the feature
+target_not_feature=[]
+for user in users_target:
+    if user not in users_features:
+        target_not_feature.append(user)
+
+# Find those users that are in the feature but not in the target
+feature_not_target=[]
+for user in users_features:
+    if user not in users_target:
+        feature_not_target.append(user)
+
+# Print the size of the two sets
+print('In target but not feature:',len(target_not_feature),
+      '- In feature but not target:' ,len(feature_not_target))
+# We will set the index to the user_id as this will make it easier to drop rows
+# Then we drop the rows and then turn the remaining column into an array
+target_reg=target_reg.set_index(['user_id'])
+target_reg.drop(target_not_feature,inplace=True)
+target_reg.reset_index(inplace=True)
+target_reg=target_reg[8].values
+
+# Same for the classification
+target_class=target_class.set_index(['user_id'])
+target_class.drop(target_not_feature,inplace=True)
+target_class.reset_index(inplace=True)
+target_class=target_class[8].values
+        
+# Check to make sure the outcome makes sense
+print(target_reg[:10])
+print(target_class[:10])
+# Let's check the size of our datasets
+print('Number of samples in the training feature set:',len(features))
+print('Number of samples in the training target set (classification):',
+      len(target_class))
+print('Number of samples in the training target set (regression):',
+      len(target_reg))
+# We will fill remaining missing values with 0s as we don't know any better
+features=features.set_index(['user_id'])
+features.fillna(0,inplace=True)
+features.head()
+features.to_csv('features.csv')
+np.savetxt('target.txt',(target_reg,target_class))
