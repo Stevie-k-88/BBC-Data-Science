@@ -1,0 +1,257 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Apr 16 19:47:36 2019
+
+@author: Stevie
+"""
+import pandas as pd
+import numpy as np
+import datetime
+import math
+import matplotlib.pyplot as plt
+
+pd.set_option("display.max_columns",None)
+data=pd.read_csv('iplayer_data_sample_janapr2017.csv', parse_dates=['start_date_time'])
+print(data.shape)
+print(data.head())
+# Enhance the data with a few additional columns
+# Here we create some functions that we will apply to our dataset columns afterwards
+
+# Get the weekday
+def get_weekday(formated_time):
+    return 'weekday_' + str(formated_time.weekday())
+
+# Get the two-week number. We will forecast the minutes watched in the last two weeks
+# Python3 rounds 0.5 up and down depending on the integer so we can't use round function
+def get_twoweeknumber(formated_time):
+    return math.floor(formated_time.isocalendar()[1]/2.0)
+
+# Get the time of day
+def get_timeofday(formated_time):
+    hour=formated_time.hour
+    if hour in range(5,13):
+        return 'Morning'
+    elif hour in range(13,18):
+        return 'Afternoon'
+    elif hour in range(18,23):
+        return 'Evening'
+    else:
+        return 'Night'
+
+# Parse the programme duration 
+# and turn it into minutes so that we can compute the percentage of time watched
+# we assume programme_duration is in hh:mm:ss
+def parse_programme_duration(unformated_time):
+    try:
+        timeparts=unformated_time.split(':')
+        return int(timeparts[0])*60.0+int(timeparts[1])+int(timeparts[2])/60
+    except:
+        return
+    # Apply the functions to the dataframe
+data['weekday']=data['start_date_time'].apply(get_weekday)
+data['time_of_day']=data['start_date_time'].apply(get_timeofday)
+data['programme_duration_mins']=data['programme_duration'].apply(parse_programme_duration)
+data['twoweek']=data['start_date_time'].apply(get_twoweeknumber)
+
+# Convert time viewed and length of programme into minutes
+data['min_watched']=data['time_viewed']/(60000.0)
+
+data.head()
+# Check how many missing and unique values there are per column
+features=data.columns.values
+for feature in features:
+    print(feature,'- Missing:', 
+          sum(data[feature].isnull()),
+          '- Unique:', len(data[feature].unique()))
+    
+# First create a data frame that maps each piece of content with its genre
+series_mapping=pd.pivot_table(data,values='streaming_id',
+                              index=['series_id'],
+                              columns=['genre'],
+                              aggfunc=len).idxmax(axis=1)
+series_mapping=pd.DataFrame(series_mapping).reset_index().rename(columns={0:'enriched_genre'})
+series_mapping.head()
+# Let's merge in the genre back into the data
+data=pd.merge(data,series_mapping,how='left',on='series_id')
+data[data['genre'].isnull()].head()
+
+# Check how many missing and unique values for this column
+features=['genre','enriched_genre']
+for feature in features:
+    print(feature,'- Missing:',sum(data[feature].isnull()),
+          '- Unique:', len(data[feature].unique()))
+    
+# What genre is the most popular at which time of day
+genre_by_time=pd.pivot_table(data,values='streaming_id',
+                             index=['time_of_day'],
+                             columns=['enriched_genre'],
+                             aggfunc=len).idxmax(axis=1)
+genre_by_time=pd.DataFrame(genre_by_time).reset_index().rename(columns={0:'enriched_genre'})
+genre_by_time
+
+# What genre is the most popular at which hour of day
+# Rmk: we first need to build this new feature
+data['hour']=data.start_date_time.apply(lambda x:x.hour)
+genre_by_hour=pd.pivot_table(data,values='streaming_id',
+                             index=['hour'],
+                             columns=['enriched_genre'],
+                             aggfunc=len).idxmax(axis=1)
+genre_by_hour=pd.DataFrame(genre_by_hour).reset_index().rename(columns={0:'enriched_genre_hour'})
+genre_by_hour
+# Let's merge in the genre back into the data
+data=pd.merge(data,genre_by_hour,how='left',on='hour')
+data.head()
+# Function that imputes a genre based on the series id or the time of day if data is missing
+def impute_genre(row):
+    if isinstance(row['genre'],str):
+        return row['genre']
+    elif isinstance(row['enriched_genre'],str):
+        return row['enriched_genre']
+    else:
+        return row['enriched_genre_hour']
+    # Apply the function to the dataframe
+data['enriched_genre']=data.apply(impute_genre, axis=1)
+# Check how many missing and unique values for this column
+features=['genre','enriched_genre']
+for feature in features:
+    print(feature,'- Missing:',sum(data[feature].isnull()),
+          '- Unique:', len(data[feature].unique()))
+    
+# Check whether this has worked
+data[data['genre'].isnull()].head()
+# Check the average length of a programme based on genre 
+# Rmk: we rename the columns for merging afterwards
+length_by_genre=data.groupby('genre')['programme_duration_mins'].median()
+length_by_genre=pd.DataFrame(length_by_genre).reset_index().rename(columns={'programme_duration_mins':
+                                                            'enriched_duration_mins',
+                                                            'genre':'enriched_genre'})
+length_by_genre
+# Let's merge in the duration back into the data
+data=pd.merge(data,length_by_genre,how='left',on='enriched_genre')
+data.head()
+# Function that imputes a duration based on the (enriched) genre
+def impute_duration(row):
+    if row['programme_duration_mins']>0:
+        return row['programme_duration_mins']
+    else:
+        return row['enriched_duration_mins']
+    # Apply the function to the dataframe
+data['enriched_duration_mins'] = data.apply(impute_duration, axis=1)
+# Check whether this has worked
+data[data['programme_duration_mins'].isnull()].head()
+# Check how many missing and unique values for this column
+features=['programme_duration_mins','enriched_duration_mins']
+for feature in features:
+    print(feature,'- Missing:',sum(data[feature].isnull()),
+          '- Unique:', len(data[feature].unique()))
+    
+data.time_viewed.describe()
+# Assume that is error and make positive
+data['time_viewed']=abs(data['time_viewed'])
+data['min_watched']=data['time_viewed']/(60000.0)
+data.min_watched.describe()
+# Check how many missing and unique values there are per column
+features=data.columns.values
+for feature in features:
+    print(feature,'- Missing:', 
+          sum(data[feature].isnull()),
+          '- Unique:', len(data[feature].unique()))
+    data.head()
+    
+# Drop the 1st of January - incomplete week
+data=data[data['start_date_time']>'2017-01-02']
+# Check the distribution of our numerical values
+data['programme_duration_mins'].hist(bins=50)
+# Check the distribution for length watches (under 200 mins to be able to see more)
+data[data['min_watched']<200]['min_watched'].hist(bins=50)
+# Check whether we have more or less the same amount of data for each two week period
+data['twoweek'].value_counts().plot(kind='bar')
+# Check distribution of categorical values
+data['genre'].value_counts().plot(kind='bar')
+
+# How does this differ from the distribution of the enriched genre?
+data['enriched_genre'].value_counts().plot(kind='bar')
+# Plot the difference between the genre and enriched genre.
+diff = data['enriched_genre'].value_counts() - data['genre'].value_counts() 
+diff.plot(kind='bar')
+# When do people mostly watch (distribution over time of day)?
+data['time_of_day'].value_counts().sort_index().plot(kind='bar')
+data.groupby(['time_of_day'])['min_watched'].sum().plot(kind='bar')
+# Distribution over the weekday (weekday_0 is Monday)
+data['weekday'].value_counts().sort_index().plot(kind='bar')
+
+data.groupby(['weekday'])['min_watched'].sum().plot(kind='bar')
+# Let's look at whether people watch at different times across different days
+averageCounts=data['time_of_day'].value_counts()/7
+for day in sorted(set(data['weekday'])):   
+    print('\n*********** \n')
+    print(day+'\n')
+    
+    data[data['weekday']==day]['time_of_day'].value_counts().plot(kind='bar')
+    plt.title(day)
+    plt.show()
+    
+    diff=data[data['weekday']==day]['time_of_day'].value_counts() - averageCounts
+    diff.plot(kind='bar',color='grey')
+    plt.title(day+" (difference from average)")
+    plt.show()
+    # Get the number of unique users in the dataset
+print('Number of users: '+
+      str(len(data.user_id.unique())))
+# We first need to aggregate the number of observations per user per twoweek
+# Describe gives us some basic statistics on this new field
+data.groupby(['user_id','twoweek']).size().describe()
+data.groupby(['user_id','twoweek']).size().hist(bins=50)
+plt.title('Number of observations per user per two-week group')
+plt.show()
+
+# We first need to aggregate the number of observations per user per twoweek
+# Describe gives us some basic statistics on this new field
+data.groupby(['user_id','twoweek'])['min_watched'].sum().describe()
+# Let's plot the histogram to have a better idea of the distribution
+data.groupby(['user_id','twoweek'])['min_watched'].sum().hist(bins=50)
+plt.title('Number of minutes watched per user per two-week group')
+plt.show()
+# We first need to get all the possible pairs user_id x twoweek
+# And then aggregate at the user id level
+nb_twoweeks_user=data[['user_id','twoweek']].drop_duplicates()
+nb_twoweeks_user=pd.DataFrame(nb_twoweeks_user.groupby(['user_id']).size())
+nb_twoweeks_user=nb_twoweeks_user.rename(columns={0:'nb_twoweek'})
+nb_twoweeks_user.nb_twoweek.value_counts().sort_index().plot(kind='bar')
+
+# We want to get the number of users that come back from one two-week group to another
+# We first create a table of 0 and 1s 
+# if a given user (row) consumes content on a given two-week (column)
+twoweeks_user=data[['user_id','twoweek']].drop_duplicates().set_index('user_id')
+twoweeks_user.twoweek=twoweeks_user.twoweek.apply(lambda x:str(x))
+twoweeks_user=pd.get_dummies(twoweeks_user).reset_index().groupby(['user_id']).sum()
+twoweeks_user.head()
+# Let's build a retention matrix
+ret_matrix=pd.DataFrame(columns=np.arange(0,9), index=np.arange(0,9))
+
+for i in np.arange(0,8):
+    # We fill [i,i] with the number of users consuming content in twoweek i
+    ret_matrix.loc[i,i]=sum(twoweeks_user['twoweek_'+str(i)])
+    twoweeks_user.cumul_tmp=twoweeks_user['twoweek_'+str(i)]
+    
+    for j in np.arange(i+1,9):
+        # Then we fill for the other columns of row i [i,j] the number of users consuming
+        # content in every twoweek from twoweek i to twoweek j
+        twoweeks_user.cumul_tmp+=twoweeks_user['twoweek_'+str(j)]
+        ret_matrix.loc[i,j]=len(twoweeks_user[twoweeks_user.cumul_tmp==j+1-i])
+        
+ret_matrix.loc[8,8]=sum(twoweeks_user['twoweek_'+str(8)])
+ret_matrix
+# Let's put these results in ratios of the size of the cohorts
+ret_matrix_ratio=pd.DataFrame(columns=np.arange(0,9), index=np.arange(0,9))
+for i in np.arange(0,9):
+    for j in np.arange(0,9):
+        ret_matrix_ratio.loc[i,j]=ret_matrix.loc[i,j]/ret_matrix.loc[i,i]
+ret_matrix_ratio
+# Let's compute an average retention ratio
+ret_tw=[]
+for i in np.arange(0,8):
+    ret_tw+=[ret_matrix_ratio.loc[i,i+1]]
+print('Average retention from one twoweek to another: '+str(np.mean(ret_tw)))
+data.to_csv('iplayer_data_c1.csv', index=False)
+
