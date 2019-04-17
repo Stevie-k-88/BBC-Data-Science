@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+
 """
 Created on Wed Apr 17 20:33:03 2019
 
@@ -85,8 +85,7 @@ def pivot_data(dataframe):
 # We need to consider here only the "past data", i.e. get rid of the last twoweek obs
 # which corresponds to our target
 features=pivot_data(data[data['twoweek']<8])
-features.reset_index().head()
-
+features.reset_index().head
 # Make the column names generic
 features = features.rename(columns={1:'tw_lag7_watched',
                                     2:'tw_lag6_watched',
@@ -101,7 +100,8 @@ for i in [x for x in list(features.columns) if 'tw_lag' in x]:
     features[i].hist(bins=50)
     plt.title(i)
     plt.show()
-    # Histogram
+    
+# Histogram
 features['total_sessions'].hist(bins=50)
 plt.title('Total number of sessions per user')
 plt.show()
@@ -109,6 +109,7 @@ plt.show()
 features['number_watched'].hist(bins=50)
 plt.title('Number of unique pieces of content watched per user')
 plt.show()
+
 # Histogram
 features['average_completion'].hist(bins=50)
 plt.title('Average completion per user')
@@ -145,12 +146,10 @@ favourite_timeday=dict()
 for i in [x for x in list(features.columns) if 'most_timeday' in x]:
     favourite_timeday[i.split('most_timeday_',1)[1]]=sum(features[i]) 
 pd.Series(favourite_timeday)
-
 # Histogram
 pd.Series(favourite_timeday).sort_index().plot(kind='bar')
 plt.title('Favourite time of the day to watch iPlayer per user')
 plt.show()
-
 # Correlation matrix
 plt.matshow(features.corr())
 plt.colorbar()
