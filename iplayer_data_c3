@@ -1,1 +1,189 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Apr 17 23:36:07 2019
 
+@author: Stevie
+"""
+
+import pandas as pd
+import numpy as np
+import itertools
+import matplotlib
+import matplotlib.pyplot as plt
+# Comment below if you want to display the warnings (quite verbose here in the modeling part)
+import warnings
+warnings.filterwarnings('ignore')
+# We put both target arrays (regression and classification) in the same txt file
+# As both target arrays have the same size we just need to split it it two
+# and get the correct part for the prediction task
+target = np.split(np.loadtxt('target.txt'), 2)[1].flatten()
+features = pd.read_csv('features.csv')
+
+# User id as index
+features = features.set_index('user_id')
+features.head()
+target[:10]
+# Let's check our baseline score
+sum(target)/len(target)
+# Let's also check the score of the most common class, which given is target class 0
+sum(target==0)/len(target)
+# Let's build a simple tree based classification model
+from sklearn import tree
+
+# Accuracy as our error evaluation
+from sklearn.metrics import accuracy_score
+
+# We will use cross validation, so import helper functions for this
+from sklearn.model_selection import cross_val_score, cross_val_predict
+# Setup the model and develop a simple grid search against some key parameters
+DT_param_max_depth=[2,3,4,6,8,10]
+DT_param_min_leaf=[75,90,1# Let's keep track of our best parameters
+DT_best_score=0
+DT_best_param=[0,0]
+
+# We will use the itertools library to try all the possible combinations of paramaters
+# We could also have used the gridsearchCV capability in scikit learn
+for c in itertools.product(DT_param_max_depth,DT_param_min_leaf):
+    treeclass=tree.DecisionTreeClassifier(max_depth=c[0],min_samples_leaf=c[1])
+    scores=cross_val_score(treeclass,
+                           features,
+                           target,
+                           scoring='accuracy')
+    if np.mean(scores)>DT_best_score:
+        DT_best_score=np.mean(scores)
+        DT_best_param=c
+
+# Print the overall best results
+print('Best Settings: Max Depth:',DT_best_param[0],'- Min Sample Leaf:',DT_best_param[1])
+print('Score:',DT_best_score)00,110,125,150]
+ # Let's keep our best model (hyperparameters tuned)
+treeclass=tree.DecisionTreeClassifier(max_depth=DT_best_param[0],
+                                      min_samples_leaf=DT_best_param[1])
+DT=treeclass.fit(features,target)
+ # The model has been trained on the entire dataset - i.e. the output we are comparing our
+# predictions with here have been used to estimate the parameters
+DT.score(features,target)
+# Features importance
+feature_impDT=pd.DataFrame(
+    {'feature': list(features.columns),
+     'importance': list(DT.feature_importances_)
+    })
+feature_impDT.sort_values(by='importance', ascending=False).reset_index(drop=True).head(10)
+# Let's build a random forrest
+from sklearn.ensemble import RandomForestClassifier  
+# Setup the model and develop a simple grid search against some key parameters
+RF_param_max_depth=[2,3,4,6,8,10]
+RF_param_min_leaf=[75,90,100,110,125,150]
+# Let's keep track of our best parameters
+RF_best_score=0
+RF_best_param=[0,0]
+
+# We will use the itertools library to try all the possible combinations of paramaters
+# We could also have used the gridsearchCV capability in scikit learn
+for c in itertools.product(RF_param_max_depth,RF_param_min_leaf):
+    forrestclass=RandomForestClassifier(n_estimators=200,
+                                        max_depth=c[0],min_samples_leaf=c[1])
+    scores=cross_val_score(forrestclass,
+                           features,
+                           target,
+                           scoring='accuracy')
+    if np.mean(scores)>RF_best_score:
+        RF_best_score=np.mean(scores)
+        RF_best_param=c
+
+# Print the overall best results
+print('Best Settings: Max Depth:',RF_best_param[0],'- Min Sample Leaf:',RF_best_param[1])
+print('Score:',RF_best_score)
+# Let's keep our best model (hyperparameters tuned)
+forrestclass=RandomForestClassifier(n_estimators=200,
+                                    max_depth=RF_best_param[0],
+                                    min_samples_leaf=RF_best_param[1])
+RF=forrestclass.fit(features,target)
+# In-sample accuracy
+RF.score(features,target)
+# Features importance
+feature_impRF=pd.DataFrame(
+    {'feature': list(features.columns),
+     'importance': list(RF.feature_importances_)
+    })
+feature_impRF.sort_values(by='importance', ascending=False).reset_index(drop=True).head(10)
+# Let's build a logistic regression
+from sklearn import linear_model
+
+# setup the model and develop a simple grid search against some key parameters
+LR_param_C=[0.001,0.01,0.1,1.0,10,100,1000]
+# Let's keep track of our best parameters
+LR_best_score=0
+LR_best_param=0
+
+# we will setup a manual grid search, but you can also use the gridsearchCV capability in sklearn
+for i in LR_param_C:
+    logclass=linear_model.LogisticRegression(C=i)
+    scores=cross_val_score(logclass,
+                           features,
+                           target,
+                           scoring='accuracy')
+    if np.mean(scores)>LR_best_score:
+        LR_best_score=np.mean(scores)
+        LR_best_param=i
+
+# print the overall best results
+print('Best Settings: C:',LR_best_param)
+print('Score:',LR_best_score)
+# Let's keep our best model (hyperparameters tuned)
+logclass=linear_model.LogisticRegression(C=LR_best_param)
+LR=logclass.fit(features,target)
+# In-sample accuracy
+LR.score(features,target)
+# First, let's have a look at the highest magnitude positive coefficients.
+coefLR=pd.DataFrame(
+    {'feature': list(features.columns),
+     'coef': list(LR.coef_.flatten())
+    })
+coefLR.sort_values(by='coef',ascending=False).reset_index(drop=True).head()
+# Then, lets have a look at the highest magnitude negative coefficients.
+coefLR.sort_values(by='coef',ascending=False).reset_index(drop=True).tail()
+
+# Now let's plot them all
+coefLR=coefLR.set_index(['feature'])
+coefLR.sort_values(by='coef', ascending=False).plot(kind='bar')
+plt.show()
+# Let's try to get some non linear patterns
+from sklearn import svm
+
+# setup the model and develop a simple grid search against some key parameters
+SVM_param_C=[0.001,0.01,0.1,1.0,10,100,1000]
+# Let's keep track of our best parameters
+SVM_best_score=0
+SVM_best_param=0
+
+# we will setup a manual grid search, but you can also use the gridsearchCV capability in sklearn
+for i in SVM_param_C:
+    svcclass=svm.SVC(C=i, kernel='rbf')
+    scores=cross_val_score(svcclass,
+                           features,
+                           target,
+                           scoring='accuracy')
+    if np.mean(scores)>SVM_best_score:
+        SVM_best_score=np.mean(scores)
+        SVM_best_param=i
+
+# print the overall best results
+print('Best Settings: C:',SVM_best_param)
+print('Score:',SVM_best_score)
+# Let's keep our best model (hyperparameters tuned)
+svcclass=svm.SVC(C=SVM_best_param, kernel='rbf')
+SVM=svcclass.fit(features,target)
+# In-sample error
+SVM.score(features,target)
+# Let's plot the out-of-sample and in-sample performance of our models
+scores = pd.DataFrame({'Baseline':[sum(target)/len(target), sum(target)/len(target)],
+                       'Decision Tree':[DT_best_score, DT.score(features,target)], 
+                       'Random Forest':[RF_best_score, RF.score(features,target)],
+                       'Logistic Regression':[LR_best_score, LR.score(features,target)], 
+                       'SVM':[SVM_best_score, SVM.score(features,target)] },
+                      index=['Out-of-Sample','In-sample'])
+
+scores.plot(kind='bar', colormap='Blues')
+plt.legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
+plt.show()
