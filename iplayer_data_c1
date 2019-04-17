@@ -150,6 +150,14 @@ data.time_viewed.describe()
 data['time_viewed']=abs(data['time_viewed'])
 data['min_watched']=data['time_viewed']/(60000.0)
 data.min_watched.describe()
+# Percentage of content watched by the user
+data['percentage_watched']=(data['min_watched']/data['enriched_duration_mins'])
+data.percentage_watched.describe()
+# Clean up the percentage field from when the number is more than 100%
+def clean_perc(number):
+    return min(number,1)
+# Clean up percentaged watched from anything bigger than 100%
+data['percentage_watched']=data['percentage_watched'].apply(clean_perc)
 # Check how many missing and unique values there are per column
 features=data.columns.values
 for feature in features:
