@@ -1,1 +1,251 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Apr 17 23:55:04 2019
 
+@author: Stevie
+"""
+
+
+import pandas as pd
+import numpy as np
+import itertools
+import matplotlib.pyplot as plt
+# Comment below if you want to display the warnings (quite verbose here in the modeling part)
+import warnings
+warnings.filterwarnings('ignore')
+# We put both target arrays (regression and classification) in the same txt file
+# As both target arrays have the same size we just need to split it it two
+# and get the correct part for the prediction task
+target = np.split(np.loadtxt('target.txt'), 2)[0].flatten()
+features = pd.read_csv('features.csv')
+
+# User id as index
+features = features.set_index('user_id')
+# Make sure we have the right input database
+features.head()
+# Make sure we have the right output
+target[:10]
+# Create a baseline to compare our results to (mean and median minutes watched and 0)
+mean=np.mean(target)
+median=np.median(target)
+
+mean_forecast=[mean]*len(target)
+median_forecast=[median]*len(target)
+zero_forecast=[0]*len(target)
+print("Mean: "+str(mean))
+print("Median: "+str(median))
+# Compute the errors for these different baselines
+from sklearn import metrics
+print("Score if we forecast the mean:",
+      -metrics.mean_absolute_error(target,mean_forecast))
+print("Score if we forecast the median:",
+      -metrics.mean_absolute_error(target,median_forecast))
+# Let's build a simple regression
+from sklearn import linear_model
+
+# We will use cross validation, so import helper functions for this
+from sklearn.model_selection import cross_val_score, cross_val_predict
+
+# Plots
+from matplotlib import pyplot as plt
+
+# We setup a simple linear regression, again using cross validation
+reg=linear_model.LinearRegression()
+
+MR_oos=cross_val_score(reg, features, target, scoring='neg_mean_absolute_error')
+MR_r2 = cross_val_score(reg, features, target, scoring='r2')
+predicted=cross_val_predict(reg, features,target)
+# Compute the mean error obtained in the CV
+print("Mean inverse out-of-sample error:", np.mean(MR_oos))
+# First let's see how correlated the predicted and actual output variables are.
+from scipy.stats.stats import pearsonr
+MR_r, p  = pearsonr(target,predicted)
+print('Pearson correlation coefficient: {}'.format(MR_r) )
+print("P-value {}".format(p))
+
+# Let's compare graphically the predicted and actual values
+fig, ax = plt.subplots()
+ax.scatter(target, predicted)
+ax.plot([target.min(), target.max()], [target.min(), target.max()], 'k--', lw=1)
+ax.set_xlabel('Observed')
+ax.set_ylabel('Predicted')
+plt.show()
+# Let's train on all data 
+lin_reg=linear_model.LinearRegression()
+MR=lin_reg.fit(features,target)
+# In-sample error
+from sklearn.metrics import mean_absolute_error
+MR_is = -metrics.mean_absolute_error(target,MR.predict(features))
+print("Inverse in-sample error: {}".format(MR_is))
+
+# First, let's have a look at the highest magnitude positive coefficients.
+coefMR=pd.DataFrame(
+    {'feature': list(features.columns),
+     'coefficient': list(MR.coef_)
+    })
+coefMR.sort_values(by='coefficient', ascending=False).reset_index(drop=True).head()
+# Now lets have a look at the highest magnitude negative coefficients.
+coefMR.sort_values(by='coefficient', ascending=False).reset_index(drop=True).tail()
+# Now let's plot them all
+coefMR = coefMR.set_index(['feature'])
+coefMR.sort_values(by='coefficient', ascending=False).plot(kind='bar')
+plt.show()
+# Setup the model and develop a simple grid search against some key parameters
+RR_param_alpha=[0.001,0.01,0.1,1.0,10,100]
+
+# Let's keep track of our best parameters
+RR_best_score=-200
+RR_best_param=0
+
+# we will setup a manual grid search, but you can also use the gridsearchCV capability in sklearn
+for i in RR_param_alpha:
+    reg_r = linear_model.Ridge(alpha = i)
+    scores=cross_val_score(reg_r,
+                           features,
+                           target,
+                           scoring='neg_mean_absolute_error')
+    
+    if np.mean(scores)>RR_best_score:
+        RR_best_score=np.mean(scores)
+        RR_best_param=i
+
+# print the overall best results
+print('Best Settings: alpha:',RR_best_param)
+print('Inverse out-of-sample error:',RR_best_score)
+# First let's see how correlated the predicted and actual output variables are.
+reg_r=linear_model.Ridge(alpha=RR_best_param)
+predicted=cross_val_predict(reg_r,features,target)
+RR_r, p  = pearsonr(target,predicted)
+print('Pearson correlation coefficient: {}'.format(RR_r) )
+print("P-value {}".format(p))
+
+# Let's compare graphically the predicted and actual values
+fig, ax = plt.subplots()
+ax.scatter(target, predicted)
+ax.plot([target.min(), target.max()], [target.min(), target.max()], 'k--', lw=1)
+ax.set_xlabel('Measured')
+ax.set_ylabel('Predicted')
+plt.show()
+# Let's keep our best model (hyperparameters tuned)
+ridge=linear_model.Ridge(alpha=RR_best_param)
+RR=ridge.fit(features,target)
+# In-sample error
+RR_is=-metrics.mean_absolute_error(target,RR.predict(features))
+print("Inverse in-sample error: {}".format(RR_is))
+# Let's have a look at the estimated coefficients
+coefRR=pd.DataFrame(
+    {'feature': list(features.columns),
+     'coefficient': list(RR.coef_)
+    })
+# Make the index the feature label.
+coefRR = coefRR.set_index(['feature'])
+# First, let's have a look at the highest magnitude positive coefficients.
+coefRR.sort_values(by='coefficient', ascending=False).head()
+
+# Then, let's have a look at the highest magnitude negative coefficients.
+coefRR.sort_values(by='coefficient', ascending=False).tail()
+# Now let's plot them all
+coefRR.sort_values(by='coefficient', ascending=False).plot(kind='bar')
+plt.show()
+# We will negate the accuracy here as it's easier to read 
+# and then plot the errors: the best model is the one than MINIMIZES these values
+scores = pd.DataFrame({'Baseline (median)':[metrics.mean_absolute_error(target,median_forecast),
+                                            metrics.mean_absolute_error(target,median_forecast)],
+                       'Linear Regression':[-np.mean(MR_oos), -MR_is], 
+                       'Ridge Regression':[-RR_best_score, -RR_is],
+                       'Lasso Regression':[-LR_best_score, -LR_is]},
+                      index=['Out-of-Sample','In-sample'])
+
+scores.plot(kind='bar', colormap='Blues')
+plt.legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
+plt.show()
+# We put both target arrays (regression and classification) in the same txt file
+# As both target arrays have the same size we just need to split it it two
+# and get the correct part for the prediction task
+target_class = np.split(np.loadtxt('target.txt'), 2)[1].flatten()
+target_class[:10]
+
+# Classifier with the hyperparameters tuned from last course
+from sklearn.ensemble import RandomForestClassifier
+forrestclass=RandomForestClassifier(n_estimators=200,
+                                    max_depth=6,
+                                    min_samples_leaf=75)
+RF=forrestclass.fit(features,target_class)
+print("In-sample accuracy RF: "+str(RF.score(features,target_class)))
+# Let's have a look at the confusion matrix of our classifier
+from sklearn.metrics import confusion_matrix
+class_names=[0,1]
+
+# We found this code here:
+# http://scikit-learn.org/stable/auto_examples/model_selection/plot_confusion_matrix.html#sphx-glr-auto-examples-model-selection-plot-confusion-matrix-py
+def plot_confusion_matrix(cm, classes,
+                          normalize=False,
+                          title='Confusion matrix',
+                          cmap=plt.cm.Blues):
+    """
+    This function prints and plots the confusion matrix.
+    Normalization can be applied by setting `normalize=True`.
+    """
+    if normalize:
+        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        print('Normalized confusion matrix')
+    else:
+        print('Confusion matrix, without normalization')
+
+    print(cm)
+
+    plt.imshow(cm, interpolation='nearest', cmap=cmap)
+    plt.title(title)
+    plt.colorbar()
+    tick_marks = np.arange(len(classes))
+    plt.xticks(tick_marks, classes, rotation=45)
+    plt.yticks(tick_marks, classes)
+
+    fmt = '.2f' if normalize else 'd'
+    thresh = cm.max() / 2.
+    for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
+        plt.text(j, i, format(cm[i, j], fmt),
+                 horizontalalignment="center",
+                 color="white" if cm[i, j] > thresh else "black")
+
+    plt.tight_layout()
+    plt.ylabel('True label')
+    plt.xlabel('Predicted label')
+
+# Compute confusion matrix
+cnf_matrix=confusion_matrix(target_class, RF.predict(features))
+np.set_printoptions(precision=2)
+
+# Plot non-normalized confusion matrix
+plt.figure()
+plot_confusion_matrix(cnf_matrix, classes=class_names,
+                      title='Confusion matrix, without normalization')
+
+
+# Plot normalized confusion matrix
+plt.figure()
+plot_confusion_matrix(cnf_matrix, classes=class_names, normalize=True,
+                      title='Normalized confusion matrix')
+
+plt.show()
+# Recall: how many relevant items (class 1) are selected?
+# Or in other words, what is the proportion of class 1 our model managed to get?
+nb_class1=cnf_matrix[1][0]+cnf_matrix[1][1]
+nb_class1_pred_true=cnf_matrix[1][1]
+print('Among the '+str(nb_class1)+
+      ' users who consumed content, the classifier identified '+str(nb_class1_pred_true)+
+      '. \nRecall: '+str(nb_class1_pred_true/nb_class1))
+# Precision: how many selected items (predicted as class 1) are relevant?
+# Or in other words, what is the proportion of true class 1 in our class 1 predictions?
+nb_class1_pred_false=cnf_matrix[0][1]
+print('Among the '+str(nb_class1_pred_false+nb_class1_pred_true)+
+      ' users our model forecasted to consume content, '+str(nb_class1_pred_true)+
+      ' did. \nPrecision: '+
+      str(nb_class1_pred_true/(nb_class1_pred_true+nb_class1_pred_false)))
+# Let's compute our overall score by multiplying the two outputs
+# Note that we can easily do that are we already controlled for the order in our users
+overall_score=RF.predict(features)*LR.predict(features)
+overall_score[:10]
+# Let's now have a look at the in-sample error
+comb_is=-metrics.mean_absolute_error(target,overall_score)
+print(comb_is)
